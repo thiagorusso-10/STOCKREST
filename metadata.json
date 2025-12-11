@@ -1,0 +1,5 @@
+{
+  "name": "StockRest",
+  "description": "A brutalist-style inventory management system for restaurants featuring role-based access for Admins and Staff, stock tracking, and alert systems.",
+  "requestFramePermissions": []
+}
