@@ -75,13 +75,32 @@ interface AppContextType {
 
 // --- Supabase Client ---
 
-// NOTE: Ensure you have these variables in your .env file or Vercel Environment Variables
 const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
 const supabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
 
 const supabase = (supabaseUrl && supabaseKey) 
   ? createClient(supabaseUrl, supabaseKey) 
   : null;
+
+// --- Mock Data for MVP/Demo ---
+const MOCK_CATEGORIES: Category[] = [
+  { id: '1', name: 'Proteínas' },
+  { id: '2', name: 'Hortifruti' },
+  { id: '3', name: 'Bebidas' },
+  { id: '4', name: 'Mercearia' }
+];
+
+const MOCK_ITEMS: InventoryItem[] = [
+  { id: '101', name: 'Filé Mignon Limpo', unit: 'Kg', minStock: 5, currentStock: 12.5, lastCountDate: '2024-03-01', expiryDate: '2024-03-10', responsible: 'Chef', categoryId: '1', valuePerUnit: 89.90 },
+  { id: '102', name: 'Salmão Fresco', unit: 'Kg', minStock: 3, currentStock: 0, lastCountDate: '2024-03-01', expiryDate: '2024-03-05', responsible: 'Chef', categoryId: '1', valuePerUnit: 120.00 },
+  { id: '103', name: 'Tomate Italiano', unit: 'Kg', minStock: 10, currentStock: 8, lastCountDate: '2024-03-02', expiryDate: '2024-03-08', responsible: 'Estoque', categoryId: '2', valuePerUnit: 8.50 },
+  { id: '104', name: 'Coca-Cola Lata', unit: 'Un', minStock: 48, currentStock: 120, lastCountDate: '2024-02-28', expiryDate: '2024-12-01', responsible: 'Bar', categoryId: '3', valuePerUnit: 2.50 },
+  { id: '105', name: 'Arroz Arbóreo', unit: 'Kg', minStock: 5, currentStock: 2, lastCountDate: '2024-02-20', expiryDate: '2025-01-01', responsible: 'Estoque', categoryId: '4', valuePerUnit: 22.00 },
+];
+
+const MOCK_LOGS: Log[] = [
+  { id: 'l1', action: 'create', details: 'Sistema iniciado em modo demonstração', userId: 'system', userName: 'System', timestamp: new Date().toISOString() }
+];
 
 // --- Context ---
 
@@ -95,13 +114,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [logs, setLogs] = useState<Log[]>([]);
   const [loading, setLoading] = useState(false);
   
-  // Settings are local-only for this version to simplify DB schema
   const [settings, setSettings] = useState<AppSettings>(() => {
     const saved = localStorage.getItem('stockrest_settings');
     return saved ? JSON.parse(saved) : { expiryThresholdDays: 3, lowStockPercentage: 20 };
   });
 
-  // --- Data Mapping Helpers (DB Snake_case <-> App CamelCase) ---
+  // --- Data Mapping Helpers ---
 
   const mapUserFromDB = (u: any): User => ({
     id: u.id,
@@ -113,10 +131,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     createdAt: u.created_at
   });
 
-  const mapCategoryFromDB = (c: any): Category => ({
-    id: c.id,
-    name: c.name
-  });
+  const mapCategoryFromDB = (c: any): Category => ({ id: c.id, name: c.name });
 
   const mapItemFromDB = (i: any): InventoryItem => ({
     id: i.id,
@@ -143,22 +158,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // --- Data Fetching ---
 
   const refreshData = async () => {
-    if (!supabase) return;
+    if (!supabase) {
+      // Mock Data Load
+      setCategories(MOCK_CATEGORIES);
+      setItems(MOCK_ITEMS);
+      setLogs(MOCK_LOGS);
+      setUsers([{ id: 'demo', name: 'Admin Demo', email: 'admin@gmail.com', role: 'admin', status: 'active', createdAt: new Date().toISOString() }]);
+      return;
+    }
     
     try {
-      // Fetch Users
       const { data: usersData } = await supabase.from('users').select('*').order('name');
       if (usersData) setUsers(usersData.map(mapUserFromDB));
 
-      // Fetch Categories
       const { data: catData } = await supabase.from('categories').select('*').order('name');
       if (catData) setCategories(catData.map(mapCategoryFromDB));
 
-      // Fetch Items
       const { data: itemsData } = await supabase.from('items').select('*').order('name');
       if (itemsData) setItems(itemsData.map(mapItemFromDB));
 
-      // Fetch Logs (Limit 50)
       const { data: logsData } = await supabase.from('logs').select('*').order('timestamp', { ascending: false }).limit(50);
       if (logsData) setLogs(logsData.map(mapLogFromDB));
 
@@ -168,25 +186,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   useEffect(() => {
-    // 1. Check Session Storage for logged user
     const storedUser = sessionStorage.getItem('stockrest_user');
     if (storedUser) {
       setUser(JSON.parse(storedUser));
     }
-
-    // 2. Initial Data Load
-    if (supabase) {
-      setLoading(true);
-      refreshData().finally(() => setLoading(false));
-    } else {
-      console.warn("Supabase keys missing. App running in offline/mock mode (empty).");
-    }
+    setLoading(true);
+    refreshData().finally(() => setLoading(false));
   }, []);
 
   // --- Actions ---
 
   const addLog = async (action: Log['action'], details: string) => {
-    if (!supabase) return;
     const newLog = {
       action,
       details,
@@ -195,32 +205,53 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       timestamp: new Date().toISOString()
     };
     
-    // Optimistic update
+    // Local Update
     const tempLog: Log = { ...newLog, id: Math.random().toString(), userId: newLog.user_id, userName: newLog.user_name };
     setLogs(prev => [tempLog, ...prev]);
 
-    await supabase.from('logs').insert(newLog);
-    // Silent refresh not needed for logs usually
+    if (supabase) {
+      await supabase.from('logs').insert(newLog);
+    }
   };
 
   const login = async (email: string, pass: string): Promise<boolean> => {
-    if (!supabase) return false;
-    
-    // Simple custom auth query (Not secure for high-value production, but matches requested architecture)
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
-      .eq('password', pass)
-      .eq('status', 'active')
-      .single();
+    // 1. Try Supabase Login
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .eq('password', pass)
+        .eq('status', 'active')
+        .single();
 
-    if (error || !data) return false;
+      if (data && !error) {
+        const loggedUser = mapUserFromDB(data);
+        setUser(loggedUser);
+        sessionStorage.setItem('stockrest_user', JSON.stringify(loggedUser));
+        return true;
+      }
+    }
 
-    const loggedUser = mapUserFromDB(data);
-    setUser(loggedUser);
-    sessionStorage.setItem('stockrest_user', JSON.stringify(loggedUser));
-    return true;
+    // 2. Demo Fallback (If Supabase fails or is missing)
+    if (email === 'admin@gmail.com' && pass === 'admin') {
+      const demoUser: User = { 
+        id: 'demo-admin', 
+        name: 'Admin Demonstração', 
+        email: 'admin@gmail.com', 
+        role: 'admin', 
+        status: 'active',
+        createdAt: new Date().toISOString()
+      };
+      setUser(demoUser);
+      sessionStorage.setItem('stockrest_user', JSON.stringify(demoUser));
+      
+      // Ensure data is loaded
+      if (items.length === 0) refreshData();
+      return true;
+    }
+
+    return false;
   };
 
   const logout = () => {
@@ -229,114 +260,161 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const addUser = async (newUser: User) => {
-    if (!supabase) return;
-    const dbUser = {
-      name: newUser.name,
-      email: newUser.email,
-      role: newUser.role,
-      password: newUser.password,
-      status: newUser.status
-    };
-    await supabase.from('users').insert(dbUser);
+    // Local
+    setUsers(prev => [...prev, newUser]);
     addLog('create', `Usuário criado: ${newUser.name}`);
-    refreshData();
+    
+    // DB
+    if (supabase) {
+      const dbUser = {
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        password: newUser.password,
+        status: newUser.status
+      };
+      await supabase.from('users').insert(dbUser);
+      refreshData();
+    }
   };
 
   const updateUser = async (updatedUser: User) => {
-    if (!supabase) return;
-    const dbUser = {
-      name: updatedUser.name,
-      email: updatedUser.email,
-      role: updatedUser.role,
-      password: updatedUser.password, // Be careful updating passwords this way in real apps
-      status: updatedUser.status
-    };
-    await supabase.from('users').update(dbUser).eq('id', updatedUser.id);
+    // Local
+    setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
     addLog('update', `Usuário atualizado: ${updatedUser.name}`);
-    refreshData();
+
+    // DB
+    if (supabase) {
+      const dbUser = {
+        name: updatedUser.name,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        password: updatedUser.password,
+        status: updatedUser.status
+      };
+      await supabase.from('users').update(dbUser).eq('id', updatedUser.id);
+      refreshData();
+    }
   };
 
   const addCategory = async (name: string) => {
-    if (!supabase) return;
-    await supabase.from('categories').insert({ name });
+    // Local
+    const newCat = { id: Date.now().toString(), name };
+    setCategories(prev => [...prev, newCat]);
     addLog('create', `Categoria criada: ${name}`);
-    refreshData();
+
+    // DB
+    if (supabase) {
+      await supabase.from('categories').insert({ name });
+      refreshData();
+    }
   };
 
   const deleteCategory = async (id: string) => {
-    if (!supabase) return;
     const catName = categories.find(c => c.id === id)?.name || id;
-    await supabase.from('categories').delete().eq('id', id);
+    // Local
+    setCategories(prev => prev.filter(c => c.id !== id));
     addLog('delete', `Categoria excluída: ${catName}`);
-    refreshData();
+
+    // DB
+    if (supabase) {
+      await supabase.from('categories').delete().eq('id', id);
+      refreshData();
+    }
   };
 
   const addItem = async (item: InventoryItem) => {
-    if (!supabase) return;
-    const dbItem = {
-      name: item.name,
-      unit: item.unit,
-      min_stock: item.minStock,
-      current_stock: item.currentStock,
-      value_per_unit: item.valuePerUnit,
-      last_count_date: item.lastCountDate,
-      expiry_date: item.expiryDate,
-      responsible: item.responsible,
-      category_id: item.categoryId
-    };
-    await supabase.from('items').insert(dbItem);
+    // Local
+    setItems(prev => [...prev, item]);
     addLog('create', `Item criado: ${item.name}`);
-    refreshData();
+
+    // DB
+    if (supabase) {
+      const dbItem = {
+        name: item.name,
+        unit: item.unit,
+        min_stock: item.minStock,
+        current_stock: item.currentStock,
+        value_per_unit: item.valuePerUnit,
+        last_count_date: item.lastCountDate,
+        expiry_date: item.expiryDate,
+        responsible: item.responsible,
+        category_id: item.categoryId
+      };
+      await supabase.from('items').insert(dbItem);
+      refreshData();
+    }
   };
 
   const updateItem = async (item: InventoryItem) => {
-    if (!supabase) return;
-    const dbItem = {
-      name: item.name,
-      unit: item.unit,
-      min_stock: item.minStock,
-      current_stock: item.currentStock,
-      value_per_unit: item.valuePerUnit,
-      last_count_date: item.lastCountDate,
-      expiry_date: item.expiryDate,
-      responsible: item.responsible,
-      category_id: item.categoryId
-    };
-    await supabase.from('items').update(dbItem).eq('id', item.id);
+    // Local
+    setItems(prev => prev.map(i => i.id === item.id ? item : i));
     addLog('update', `Item atualizado: ${item.name}`);
-    refreshData();
+
+    // DB
+    if (supabase) {
+      const dbItem = {
+        name: item.name,
+        unit: item.unit,
+        min_stock: item.minStock,
+        current_stock: item.currentStock,
+        value_per_unit: item.valuePerUnit,
+        last_count_date: item.lastCountDate,
+        expiry_date: item.expiryDate,
+        responsible: item.responsible,
+        category_id: item.categoryId
+      };
+      await supabase.from('items').update(dbItem).eq('id', item.id);
+      refreshData();
+    }
   };
 
   const deleteItem = async (id: string) => {
-    if (!supabase) return;
     const itemName = items.find(i => i.id === id)?.name || id;
-    await supabase.from('items').delete().eq('id', id);
+    // Local
+    setItems(prev => prev.filter(i => i.id !== id));
     addLog('delete', `Item excluído: ${itemName}`);
-    refreshData();
+
+    // DB
+    if (supabase) {
+      await supabase.from('items').delete().eq('id', id);
+      refreshData();
+    }
   };
 
   const updateStockBatch = async (updates: { id: string, currentStock: number, expiryDate: string }[], responsibleName: string) => {
-    if (!supabase) return;
-    
-    // Process updates in a loop (Simple for MVP). Ideally use an RPC function or UPSERT.
     const now = new Date().toISOString().split('T')[0];
-    let changedCount = 0;
-
-    for (const update of updates) {
-      // Find original to compare (optional, skipped for speed)
-      // Just update
-      const { error } = await supabase.from('items').update({
-        current_stock: update.currentStock,
-        expiry_date: update.expiryDate,
-        last_count_date: now,
-        responsible: responsibleName
-      }).eq('id', update.id);
-      
-      if (!error) changedCount++;
-    }
-
+    
+    // Local Update
+    setItems(prev => prev.map(item => {
+      const update = updates.find(u => u.id === item.id);
+      if (update) {
+        return { 
+          ...item, 
+          currentStock: update.currentStock, 
+          expiryDate: update.expiryDate,
+          lastCountDate: now,
+          responsible: responsibleName
+        };
+      }
+      return item;
+    }));
+    
+    const changedCount = updates.length;
     if (changedCount > 0) {
       addLog('stock_update', `Estoque atualizado em massa (${changedCount} itens)`);
+    }
+
+    // DB
+    if (supabase) {
+      for (const update of updates) {
+        await supabase.from('items').update({
+          current_stock: update.currentStock,
+          expiry_date: update.expiryDate,
+          last_count_date: now,
+          responsible: responsibleName
+        }).eq('id', update.id);
+      }
       refreshData();
     }
   };
