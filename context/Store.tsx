@@ -444,3 +444,4 @@ export const useStore = () => {
   if (!context) throw new Error("useStore must be used within AppProvider");
   return context;
 };
+
