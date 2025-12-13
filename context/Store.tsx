@@ -102,6 +102,16 @@ const MOCK_LOGS: Log[] = [
   { id: 'l1', action: 'create', details: 'Sistema iniciado em modo demonstração', userId: 'system', userName: 'System', timestamp: new Date().toISOString() }
 ];
 
+const DEFAULT_ADMIN: User = { 
+  id: 'demo-admin', 
+  name: 'Admin Demonstração', 
+  email: 'admin@gmail.com', 
+  role: 'admin', 
+  password: 'admin', // Storing password for demo logic matching
+  status: 'active',
+  createdAt: new Date().toISOString()
+};
+
 // --- Context ---
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -159,11 +169,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const refreshData = async () => {
     if (!supabase) {
-      // Mock Data Load
-      setCategories(MOCK_CATEGORIES);
-      setItems(MOCK_ITEMS);
+      // Mock Data Load (with persistence check)
+      const storedUsers = localStorage.getItem('stockrest_demo_users');
+      if (storedUsers) {
+        setUsers(JSON.parse(storedUsers));
+      } else {
+        setUsers([DEFAULT_ADMIN]);
+      }
+
+      const storedItems = localStorage.getItem('stockrest_demo_items');
+      if (storedItems) setItems(JSON.parse(storedItems));
+      else setItems(MOCK_ITEMS);
+
+      const storedCats = localStorage.getItem('stockrest_demo_categories');
+      if (storedCats) setCategories(JSON.parse(storedCats));
+      else setCategories(MOCK_CATEGORIES);
+
       setLogs(MOCK_LOGS);
-      setUsers([{ id: 'demo', name: 'Admin Demo', email: 'admin@gmail.com', role: 'admin', status: 'active', createdAt: new Date().toISOString() }]);
       return;
     }
     
@@ -233,20 +255,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
 
-    // 2. Demo Fallback (If Supabase fails or is missing)
-    if (email === 'admin@gmail.com' && pass === 'admin') {
-      const demoUser: User = { 
-        id: 'demo-admin', 
-        name: 'Admin Demonstração', 
-        email: 'admin@gmail.com', 
-        role: 'admin', 
-        status: 'active',
-        createdAt: new Date().toISOString()
-      };
-      setUser(demoUser);
-      sessionStorage.setItem('stockrest_user', JSON.stringify(demoUser));
+    // 2. Demo Fallback (Improved)
+    // First, check if there are users in memory (which might have been loaded from LS)
+    const storedUsers = localStorage.getItem('stockrest_demo_users');
+    const availableUsers = storedUsers ? JSON.parse(storedUsers) : [DEFAULT_ADMIN];
+    
+    const foundUser = availableUsers.find((u: User) => u.email === email && u.password === pass && u.status === 'active');
+
+    if (foundUser) {
+      setUser(foundUser);
+      sessionStorage.setItem('stockrest_user', JSON.stringify(foundUser));
       
-      // Ensure data is loaded
+      // Ensure data is loaded if not already
       if (items.length === 0) refreshData();
       return true;
     }
@@ -261,7 +281,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const addUser = async (newUser: User) => {
     // Local
-    setUsers(prev => [...prev, newUser]);
+    const updatedUsers = [...users, newUser];
+    setUsers(updatedUsers);
+    if (!supabase) localStorage.setItem('stockrest_demo_users', JSON.stringify(updatedUsers));
+    
     addLog('create', `Usuário criado: ${newUser.name}`);
     
     // DB
@@ -280,7 +303,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const updateUser = async (updatedUser: User) => {
     // Local
-    setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+    const updatedUsers = users.map(u => u.id === updatedUser.id ? updatedUser : u);
+    setUsers(updatedUsers);
+    if (!supabase) localStorage.setItem('stockrest_demo_users', JSON.stringify(updatedUsers));
+
     addLog('update', `Usuário atualizado: ${updatedUser.name}`);
 
     // DB
@@ -300,7 +326,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const addCategory = async (name: string) => {
     // Local
     const newCat = { id: Date.now().toString(), name };
-    setCategories(prev => [...prev, newCat]);
+    const updatedCats = [...categories, newCat];
+    setCategories(updatedCats);
+    if (!supabase) localStorage.setItem('stockrest_demo_categories', JSON.stringify(updatedCats));
+
     addLog('create', `Categoria criada: ${name}`);
 
     // DB
@@ -313,7 +342,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const deleteCategory = async (id: string) => {
     const catName = categories.find(c => c.id === id)?.name || id;
     // Local
-    setCategories(prev => prev.filter(c => c.id !== id));
+    const updatedCats = categories.filter(c => c.id !== id);
+    setCategories(updatedCats);
+    if (!supabase) localStorage.setItem('stockrest_demo_categories', JSON.stringify(updatedCats));
+
     addLog('delete', `Categoria excluída: ${catName}`);
 
     // DB
@@ -325,7 +357,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const addItem = async (item: InventoryItem) => {
     // Local
-    setItems(prev => [...prev, item]);
+    const updatedItems = [...items, item];
+    setItems(updatedItems);
+    if (!supabase) localStorage.setItem('stockrest_demo_items', JSON.stringify(updatedItems));
+
     addLog('create', `Item criado: ${item.name}`);
 
     // DB
@@ -348,7 +383,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const updateItem = async (item: InventoryItem) => {
     // Local
-    setItems(prev => prev.map(i => i.id === item.id ? item : i));
+    const updatedItems = items.map(i => i.id === item.id ? item : i);
+    setItems(updatedItems);
+    if (!supabase) localStorage.setItem('stockrest_demo_items', JSON.stringify(updatedItems));
+
     addLog('update', `Item atualizado: ${item.name}`);
 
     // DB
@@ -372,7 +410,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const deleteItem = async (id: string) => {
     const itemName = items.find(i => i.id === id)?.name || id;
     // Local
-    setItems(prev => prev.filter(i => i.id !== id));
+    const updatedItems = items.filter(i => i.id !== id);
+    setItems(updatedItems);
+    if (!supabase) localStorage.setItem('stockrest_demo_items', JSON.stringify(updatedItems));
+
     addLog('delete', `Item excluído: ${itemName}`);
 
     // DB
@@ -386,7 +427,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const now = new Date().toISOString().split('T')[0];
     
     // Local Update
-    setItems(prev => prev.map(item => {
+    const updatedItems = items.map(item => {
       const update = updates.find(u => u.id === item.id);
       if (update) {
         return { 
@@ -398,7 +439,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         };
       }
       return item;
-    }));
+    });
+
+    setItems(updatedItems);
+    if (!supabase) localStorage.setItem('stockrest_demo_items', JSON.stringify(updatedItems));
     
     const changedCount = updates.length;
     if (changedCount > 0) {
@@ -444,4 +488,3 @@ export const useStore = () => {
   if (!context) throw new Error("useStore must be used within AppProvider");
   return context;
 };
-
